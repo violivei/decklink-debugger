@@ -7,6 +7,7 @@
 #include <vector>
 #include <string>
 #include <iostream>
+#include <fstream>
 
 #include "util.h"
 #include "tostring.h"
@@ -47,13 +48,6 @@ void _main() {
 		throw "No DeckLink devices found";
 	}
 
-	LOG(DEBUG) << "creating HttpServer";
-	HttpServer* httpServer = new HttpServer(deviceProbers);
-	auto httpServerGuard = sg::make_scope_guard([httpServer]{
-		LOG(DEBUG) << "freeing HttpServer";
-		assert(httpServer->Release() == 0);
-	});
-
 	LOG(DEBUG2) << "registering Signal-Handler";
 	signal(SIGINT, sigfunc);
 	signal(SIGTERM, sigfunc);
@@ -61,6 +55,13 @@ void _main() {
 
 	LOG(DEBUG2) << "entering Display-Loop";
 	unsigned int iteration = 0;
+	std::ostringstream oss;
+	std::vector<ImageEncoder*> m_imageEncoders;
+	std::ofstream outFile;
+	int n_digits = 3;
+	std::string prefix = "file";
+	std::string ext(".png");
+
 	while(!g_do_exit.load(std::memory_order_acquire))
 	{
 		printStatusList(deviceProbers, iteration++);
@@ -68,6 +69,23 @@ void _main() {
 		for(DeviceProber* deviceProber: deviceProbers) {
 			if(!deviceProber->GetSignalDetected()) {
 				deviceProber->SelectNextConnection();
+			}
+
+			m_imageEncoders.push_back(new ImageEncoder(deviceProber));
+			std::stringstream ss;
+        	ss << prefix << std::setfill('0') << std::setw(n_digits) << iteration << ext;
+			std::ofstream outFile( ss.str() );
+			if ( !outFile )
+			{
+				std::cerr << "Error: failed to create file " << ss.str() << '\n';
+				break;
+			}
+
+			outFile << m_imageEncoders[m_imageEncoders.size()-1]->EncodeImage();
+			if ( !outFile )
+			{
+				std::cerr << "Error: failed to write to file " << ss.str() << '\n';
+				break;
 			}
 		}
 		sleep(1);
@@ -179,6 +197,7 @@ void printStatusList(std::vector<DeviceProber*> deviceProbers, unsigned int iter
 	table.AddColumn("Active Connection", 19);
 	table.AddColumn("Detected Mode", 16);
 	table.AddColumn("Pixel Format", 15);
+	// table.AddColumn("Iteration", 1);
 	table.set_flush_left();
 	table.PrintHeader();
 
