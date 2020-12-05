@@ -2,6 +2,8 @@
 #include <unistd.h>
 #include <signal.h>
 #include <assert.h>
+#include <chrono>
+#include <thread>
 
 #include <atomic>
 #include <vector>
@@ -21,7 +23,8 @@
 #include "log.h"
 
 static std::atomic<bool> g_do_exit{false};
-
+std::chrono::system_clock::time_point a = std::chrono::system_clock::now();
+std::chrono::system_clock::time_point b = std::chrono::system_clock::now();
 std::vector<DeviceProber*> createDeviceProbers();
 void freeDeviceProbers(std::vector<DeviceProber*> deviceProbers);
 
@@ -54,41 +57,55 @@ void _main() {
 	signal(SIGHUP, sigfunc);
 
 	LOG(DEBUG2) << "entering Display-Loop";
-	unsigned int iteration = 0;
 	std::ostringstream oss;
 	std::vector<ImageEncoder*> m_imageEncoders;
 	std::ofstream outFile;
-	int n_digits = 3;
-	std::string prefix = "file";
-	std::string ext(".png");
 
-	while(!g_do_exit.load(std::memory_order_acquire))
+	unsigned int iteration = 0;
+	double total_time = 0;
+	double delta = 1000;
+	std::chrono::duration<double, std::milli> work_time;
+	std::chrono::duration<double, std::milli> sleep_time;
+
+	while(!g_do_exit.load(std::memory_order_acquire) & (total_time < 2000))
 	{
-		printStatusList(deviceProbers, iteration++);
+		// printStatusList(deviceProbers, iteration++);
 
 		for(DeviceProber* deviceProber: deviceProbers) {
 			if(!deviceProber->GetSignalDetected()) {
 				deviceProber->SelectNextConnection();
 			}
 
-			m_imageEncoders.push_back(new ImageEncoder(deviceProber));
-			std::stringstream ss;
-        	ss << prefix << std::setfill('0') << std::setw(n_digits) << iteration << ext;
-			std::ofstream outFile( ss.str() );
-			if ( !outFile )
-			{
-				std::cerr << "Error: failed to create file " << ss.str() << '\n';
-				break;
-			}
+			// ImageEncoder* img = new ImageEncoder(deviceProber);
+			// img->RGBImage(iteration);
+			// free(img);
 
-			outFile << m_imageEncoders[m_imageEncoders.size()-1]->EncodeImage();
-			if ( !outFile )
-			{
-				std::cerr << "Error: failed to write to file " << ss.str() << '\n';
-				break;
-			}
+			m_imageEncoders.push_back(new ImageEncoder(deviceProber));
 		}
-		sleep(1);
+
+		// 16.666666666667 ms per frame)
+		a = std::chrono::system_clock::now();
+		work_time = a - b;
+		if (work_time.count() < delta)
+		{
+			std::chrono::duration<double, std::milli> delta_ms(delta - work_time.count());
+			auto delta_ms_duration = std::chrono::duration_cast<std::chrono::milliseconds>(delta_ms);
+			std::this_thread::sleep_for(std::chrono::milliseconds(delta_ms_duration.count()));
+		}
+
+		b = std::chrono::system_clock::now();
+		sleep_time = b - a;
+		total_time = total_time + (work_time + sleep_time).count();
+		printf("Time: %f \n", (work_time + sleep_time).count());
+
+	}
+
+	iteration = 0;
+	for(ImageEncoder* imageEncoder : m_imageEncoders)
+	{
+		printf("Imagem: %d \n", iteration);
+		imageEncoder->RGBImage(iteration);
+		iteration++;
 	}
 
 	std::cout << "Cleaning up…" << std::endl;

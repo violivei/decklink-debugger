@@ -2,6 +2,11 @@
 
 #include <sstream>
 #include <iostream>
+#include <opencv2/core/core.hpp>
+#include <opencv2/imgcodecs.hpp>
+#include <opencv2/highgui/highgui.hpp>
+#include <opencv2/imgproc/imgproc.hpp>
+#include <iomanip>
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -35,6 +40,87 @@ ULONG ImageEncoder::Release(void)
 		return 0;
 	}
 	return newRefValue;
+}
+
+void ImageEncoder::RGBImage(unsigned int iteration) {
+	IDeckLinkVideoFrame* frame = m_deviceProber->GetLastFrame();
+
+	frame->AddRef();
+
+	frame = convertFrameIfReqired(frame);
+	decodeRawVideoFrame(frame, iteration);
+
+	frame->Release();
+}
+
+bool ImageEncoder::convertFrameToOpenCV(IDeckLinkVideoFrame* in, cv::Mat &frame)
+{
+	switch (in->GetPixelFormat()) {
+    case bmdFormat8BitYUV:
+    {
+        void* data;
+        if (FAILED(in->GetBytes(&data)))
+            return false;
+
+        cv::Mat mat = cv::Mat(in->GetHeight(), in->GetWidth(), CV_8UC2, data,
+            in->GetRowBytes());
+
+		// std::lock_guard<std::mutex> g( mtxFrameBytes);
+        cv::cvtColor(mat, frame, cv::COLOR_YUV2BGR_UYVY);
+        return true;
+    }
+    case bmdFormat8BitBGRA:
+    {
+        void* data;
+        if (FAILED(in->GetBytes(&data)))
+            return false;
+
+		cv::Mat mat = cv::Mat(in->GetHeight(), in->GetWidth(), CV_8UC4, data);
+
+		cv::cvtColor(mat, frame, cv::COLOR_BGRA2BGR);
+        return true;
+    }
+    default:
+    {
+		/*
+        ComPtr<IDeckLinkVideoConversion> deckLinkVideoConversion =
+            CreateVideoConversionInstance();
+        if (! deckLinkVideoConversion)
+            return false;
+        CvMatDeckLinkVideoFrame cvMatWrapper(in->GetHeight(), in->GetWidth());
+        if (FAILED(deckLinkVideoConversion->ConvertFrame(in.get(), &cvMatWrapper)))
+            return false;
+        
+		lock_guard<mutex> g( mtxFrameBytes);
+		cv::cvtColor(cvMatWrapper.mat, out, CV_BGRA2BGR);
+        return true;*/
+		return false;
+    }}
+}
+
+void ImageEncoder::decodeRawVideoFrame(IDeckLinkVideoFrame* videoFrame, unsigned int iteration)
+{
+	cv::Mat mFrame;
+    if(videoFrame)
+    {
+        if (videoFrame->GetFlags() & bmdFrameHasNoInputSource)
+        {
+			std::cerr << "Frame received - No input signal detected\n" << std::endl;
+        }
+        else
+        {
+			convertFrameToOpenCV( videoFrame, mFrame );
+			if (!mFrame.empty())
+			{
+				std::stringstream ss;
+				int n_digits = 3;
+				std::string prefix = "file";
+				std::string ext(".png");
+				ss << prefix << std::setfill('0') << std::setw(n_digits) << iteration << ext;
+				cv::imwrite(ss.str(), mFrame);
+			}
+        }
+	}
 }
 
 std::string ImageEncoder::EncodeImage() {

@@ -1,8 +1,12 @@
 # CMake-Version
 cmake_minimum_required(VERSION 3.1)
 
+set(OpenCV_DIR "/home/vqa/build")
+
 # Name
 project(decklink-debugger)
+find_package( OpenCV REQUIRED )
+include_directories( ${OpenCV_INCLUDE_DIRS} )
 
 # Compiler-Settings
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -pedantic -Wextra")
@@ -87,5 +91,6 @@ find_package(PNG REQUIRED)
 find_library(MICROHTTPD microhttpd)
 target_link_libraries(decklink-debugger dl ${CMAKE_THREAD_LIBS_INIT} ${MICROHTTPD} ${PNG_LIBRARY})
 target_include_directories(decklink-debugger PRIVATE ${PNG_INCLUDE_DIR})
+target_link_libraries(decklink-debugger ${OpenCV_LIBS} )
 
 install(PROGRAMS "${CMAKE_CURRENT_BINARY_DIR}/decklink-debugger" DESTINATION bin)
