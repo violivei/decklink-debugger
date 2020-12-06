@@ -29,6 +29,7 @@ public:
 	virtual void               SelectNextConnection();
 
 	virtual std::vector<IDeckLinkVideoInputFrame*> GetFrames()  { return m_deckLinkVideoFrames; }
+	virtual std::vector<IDeckLinkAudioInputPacket*> GetPCMs()  { return m_deckLinkAudioFrames; }
 
 private:
 	ULONG m_refCount;
@@ -48,8 +49,8 @@ private:
 	static const BMDVideoInputFlags VIDEO_INPUT_FLAGS = bmdVideoInputEnableFormatDetection;
 
 	static const BMDAudioSampleRate AUDIO_SAMPLE_RATE = bmdAudioSampleRate48kHz;
-	static const int                AUDIO_SAMPLE_DEPTH = 16;
-	static const int                AUDIO_CHANNELS = 16;
+	static const int                AUDIO_SAMPLE_DEPTH = 32;
+	static const int                AUDIO_CHANNELS = 2;
 
 private:
 	IDeckLink*             m_deckLinkParent;
@@ -70,6 +71,7 @@ private:
 	IDeckLinkVideoInputFrame*             m_lastFrame;
 	RefReleaser<IDeckLinkVideoInputFrame> m_lastFrameReleaser;
 	std::vector<IDeckLinkVideoInputFrame*> m_deckLinkVideoFrames;
+	std::vector<IDeckLinkAudioInputPacket*> m_deckLinkAudioFrames;
 
 	int64_t                   m_decklinkConnections;
 

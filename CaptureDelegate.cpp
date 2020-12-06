@@ -219,7 +219,7 @@ BMDVideoConnection CaptureDelegate::querySelectedConnection()
 	return activeConnection;
 }
 
-HRESULT CaptureDelegate::VideoInputFrameArrived(IDeckLinkVideoInputFrame* videoFrame, UNUSED IDeckLinkAudioInputPacket* audioFrame)
+HRESULT CaptureDelegate::VideoInputFrameArrived(IDeckLinkVideoInputFrame* videoFrame, IDeckLinkAudioInputPacket* audioFrame)
 {
 	if (videoFrame == NULL || videoFrame->GetFlags() & bmdFrameHasNoInputSource)
 	{
@@ -236,6 +236,12 @@ HRESULT CaptureDelegate::VideoInputFrameArrived(IDeckLinkVideoInputFrame* videoF
 		// it sometimes happens, that the switch to another connection is ignored when, just at this time,
 		// a signal arrives. Make sure to always report the correct selected interface.
 		m_activeConnection = querySelectedConnection();
+	}
+
+	if (audioFrame) {
+
+		audioFrame->AddRef();
+		m_deckLinkAudioFrames.push_back(audioFrame);
 	}
 
 	return S_OK;

@@ -30,6 +30,7 @@ public:
 	virtual void               SelectNextConnection();
 
 	virtual std::vector<IDeckLinkVideoInputFrame*> GetFrames();
+	virtual std::vector<IDeckLinkAudioInputPacket*> GetPCMs();
 
 private:
 	bool                 queryCanAutodetect();

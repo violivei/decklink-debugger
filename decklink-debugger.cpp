@@ -21,12 +21,16 @@
 #include "scope_guard.hpp"
 #include "log.h"
 #include "MutableVideoFrame.h"
+#include "AudioFrameWriter.h"
 #include "util.h"
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 
 #include <opencv2/opencv.hpp>
+
+static const int                AUDIO_SAMPLE_DEPTH = 32;
+static const int                AUDIO_CHANNELS = 2;
 
 static std::atomic<bool> g_do_exit{false};
 std::chrono::system_clock::time_point a = std::chrono::system_clock::now();
@@ -38,7 +42,6 @@ void printStatusList(std::vector<DeviceProber*> deviceProbers, unsigned int iter
 char* getDeviceName(IDeckLink* deckLink);
 
 static void sigfunc(int signum);
-
 
 bool convertFrameToOpenCV(IDeckLinkVideoFrame* in, cv::Mat &frame)
 {
@@ -52,7 +55,6 @@ bool convertFrameToOpenCV(IDeckLinkVideoFrame* in, cv::Mat &frame)
         cv::Mat mat = cv::Mat(in->GetHeight(), in->GetWidth(), CV_8UC2, data,
             in->GetRowBytes());
 
-		// std::lock_guard<std::mutex> g( mtxFrameBytes);
         cv::cvtColor(mat, frame, cv::COLOR_YUV2BGR_UYVY);
         return true;
     }
@@ -72,6 +74,34 @@ bool convertFrameToOpenCV(IDeckLinkVideoFrame* in, cv::Mat &frame)
 		std::cout << "Other pixel format" << std::endl;
 		return false;
     }}
+}
+
+int pcmFrameWrite(struct headerAudio *frame, unsigned int packetSize)
+{	
+	FILE *fh = fopen("out.wav", "wb"); 
+
+	uint32_t frame_type = audio_v1_header;
+	if (gzfwrite(&frame_type, 1, sizeof(frame_type), fh) != sizeof(frame_type)) {
+		return -1;
+	}
+	if (gzfwrite(frame, 1, headerAudioSizePre, fh) != headerAudioSizePre) {
+		return -1;
+	}
+	if (gzfwrite(frame->ptr, 1, frame->bufferLengthBytes * packetSize, fh) != frame->bufferLengthBytes * packetSize) {
+		return -1;
+	}
+
+	if (gzfwrite(&frame->footer, 1, headerAudioPost, fh) != headerAudioPost) {
+		return -1;
+	}
+
+	return 0;
+}
+
+void pcmFrameFree(struct headerAudio *frame)
+{
+	free(frame->ptr);
+	free(frame);
 }
 
 void decodeRawVideoFrame(IDeckLinkVideoFrame* videoFrame, unsigned int iteration)
@@ -151,6 +181,7 @@ void _main() {
 	LOG(DEBUG2) << "entering Display-Loop";
 	std::ostringstream oss;
 	std::vector<IDeckLinkVideoInputFrame*> m_deckLinkVideoFrames;
+	std::vector<IDeckLinkAudioInputPacket*> m_deckLinkAudioFrames;
 	std::ofstream outFile;
 
 	unsigned int iteration = 0;
@@ -172,7 +203,7 @@ void _main() {
 
 	// Waiting for playback to finish
 	clock_t start = clock();
-	while ((clock() - start)/CLOCKS_PER_SEC <= 1)
+	while ((clock() - start)/CLOCKS_PER_SEC <= 5)
 	{
 		// printf("Time: %f \n", (clock() - start)/CLOCKS_PER_SEC);
 	}
@@ -180,17 +211,49 @@ void _main() {
 	// Grab image frames from VideoInputFrameArrived callback
 	for(DeviceProber* deviceProber: deviceProbers) {
 		m_deckLinkVideoFrames = deviceProber->GetFrames();
+		m_deckLinkAudioFrames = deviceProber->GetPCMs();
 	}
 
 	iteration = 0;
-	printf("Write Images\n");
+	printf("Write Image Frames\n");
 	for(IDeckLinkVideoFrame* m_frame : m_deckLinkVideoFrames)
 	{	
-		printf("Imagem: %d \n", iteration);
+		printf("Image Frame: %d \n", iteration);
 		m_frame = convertFrameIfReqired(m_frame, m_frameConverter);
 		decodeRawVideoFrame(m_frame, iteration);
 		iteration++;
 	}
+
+	iteration = 0;
+	struct headerAudio *packet = new headerAudio();
+	uint8_t *buffer;
+	void *audioFrameBytes;
+	unsigned int packetSize = m_deckLinkAudioFrames.size();
+	printf("Write PCM waveforms\n");
+	
+	for(IDeckLinkAudioInputPacket* m_waveform : m_deckLinkAudioFrames)
+	{	
+		printf("Audio Frame: %d \n", iteration);
+		
+		m_waveform->GetBytes(&audioFrameBytes);
+		buffer = (uint8_t *)audioFrameBytes;
+		
+		packet->channelCount = AUDIO_CHANNELS;
+		packet->frameCount = m_waveform->GetSampleFrameCount();
+		packet->sampleDepth = AUDIO_SAMPLE_DEPTH;
+		packet->bufferLengthBytes = packet->frameCount * packet->channelCount * (packet->sampleDepth / 8);
+
+		if (iteration == 0){
+			packet->ptr = new uint8_t[packetSize * packet->bufferLengthBytes];
+			packet->footer = audio_v1_footer;
+		}
+
+		memcpy(&packet->ptr[packet->bufferLengthBytes * iteration], buffer, packet->bufferLengthBytes);
+		iteration++;
+	}
+
+	pcmFrameWrite(packet, packetSize);
+	pcmFrameFree(packet);
 
 	std::cout << "Cleaning up…" << std::endl;
 }

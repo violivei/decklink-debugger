@@ -139,6 +139,12 @@ std::vector<IDeckLinkVideoInputFrame*> DeviceProber::GetFrames()
 	return m_deckLinkVideoFrames;
 }
 
+std::vector<IDeckLinkAudioInputPacket*> DeviceProber::GetPCMs()
+{
+	std::vector<IDeckLinkAudioInputPacket*> m_deckLinkVideoFrames (m_captureDelegate->GetPCMs());
+	return m_deckLinkVideoFrames;
+}
+
 BMDVideoConnection DeviceProber::GetActiveConnection()
 {
 	if (m_captureDelegate)
