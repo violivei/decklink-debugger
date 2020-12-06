@@ -75,9 +75,7 @@ add_executable(decklink-debugger
     SubDeviceUtil.cpp
     CaptureDelegate.cpp
     DeviceProber.cpp
-    HttpServer.cpp
     MutableVideoFrame.cpp
-    ImageEncoder.cpp
     TablePrinter.cpp
     DeckLinkAPIDispatch.cpp
     ${CMAKE_CURRENT_BINARY_DIR}/rc.cpp

@@ -4,7 +4,7 @@
 #include <assert.h>
 #include <chrono>
 #include <thread>
-
+#include <time.h>
 #include <atomic>
 #include <vector>
 #include <string>
@@ -15,12 +15,18 @@
 #include "tostring.h"
 #include "DeckLinkAPI.h"
 #include "DeviceProber.h"
-#include "HttpServer.h"
 #include "TablePrinter.h"
 
 #include "RefReleaser.hpp"
 #include "scope_guard.hpp"
 #include "log.h"
+#include "MutableVideoFrame.h"
+#include "util.h"
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+
+#include <opencv2/opencv.hpp>
 
 static std::atomic<bool> g_do_exit{false};
 std::chrono::system_clock::time_point a = std::chrono::system_clock::now();
@@ -32,6 +38,92 @@ void printStatusList(std::vector<DeviceProber*> deviceProbers, unsigned int iter
 char* getDeviceName(IDeckLink* deckLink);
 
 static void sigfunc(int signum);
+
+
+bool convertFrameToOpenCV(IDeckLinkVideoFrame* in, cv::Mat &frame)
+{
+	switch (in->GetPixelFormat()) {
+    case bmdFormat8BitYUV:
+    {
+        void* data;
+        if (FAILED(in->GetBytes(&data)))
+            return false;
+
+        cv::Mat mat = cv::Mat(in->GetHeight(), in->GetWidth(), CV_8UC2, data,
+            in->GetRowBytes());
+
+		// std::lock_guard<std::mutex> g( mtxFrameBytes);
+        cv::cvtColor(mat, frame, cv::COLOR_YUV2BGR_UYVY);
+        return true;
+    }
+    case bmdFormat8BitBGRA:
+    {
+        void* data;
+        if (FAILED(in->GetBytes(&data)))
+            return false;
+
+		cv::Mat mat = cv::Mat(in->GetHeight(), in->GetWidth(), CV_8UC4, data);
+
+		cv::cvtColor(mat, frame, cv::COLOR_BGRA2BGR);
+        return true;
+    }
+    default:
+    {
+		std::cout << "Other pixel format" << std::endl;
+		return false;
+    }}
+}
+
+void decodeRawVideoFrame(IDeckLinkVideoFrame* videoFrame, unsigned int iteration)
+{
+	cv::Mat mFrame;
+    if(videoFrame)
+    {
+        if (videoFrame->GetFlags() & bmdFrameHasNoInputSource)
+        {
+			std::cerr << "Frame received - No input signal detected\n" << std::endl;
+        }
+        else
+        {
+			convertFrameToOpenCV( videoFrame, mFrame );
+			if (!mFrame.empty())
+			{
+				std::stringstream ss;
+				int n_digits = 3;
+				std::string prefix = "file";
+				std::string ext(".png");
+				ss << prefix << std::setfill('0') << std::setw(n_digits) << iteration << ext;
+				cv::imwrite(ss.str(), mFrame);
+			}
+        }
+		videoFrame->Release();
+	}
+}
+
+IDeckLinkVideoFrame* convertFrameIfReqired(IDeckLinkVideoFrame* frame, IDeckLinkVideoConversion* m_frameConverter)
+{
+	HRESULT result;
+
+	if(frame->GetPixelFormat() == bmdFormat8BitBGRA)
+	{
+		return frame;
+	}
+
+	IDeckLinkVideoFrame* convertedFrame = new MutableVideoFrame(
+		frame->GetWidth(),
+		frame->GetHeight(),
+		bmdFormat8BitBGRA);
+
+	result = m_frameConverter->ConvertFrame(frame, convertedFrame);
+	if (result != S_OK)
+	{
+		fprintf(stderr, "Failed to convert frame\n");
+		exit(1);
+	}
+
+	frame->Release();
+	return convertedFrame;
+}
 
 void _main() {
 	LOG(DEBUG) << "creating Device-Probers";
@@ -58,53 +150,45 @@ void _main() {
 
 	LOG(DEBUG2) << "entering Display-Loop";
 	std::ostringstream oss;
-	std::vector<ImageEncoder*> m_imageEncoders;
+	std::vector<IDeckLinkVideoInputFrame*> m_deckLinkVideoFrames;
 	std::ofstream outFile;
 
 	unsigned int iteration = 0;
-	double total_time = 0;
-	double delta = 1000;
 	std::chrono::duration<double, std::milli> work_time;
 	std::chrono::duration<double, std::milli> sleep_time;
+	bool connected = false;
+	IDeckLinkVideoConversion* m_frameConverter = CreateVideoConversionInstance();
 
-	while(!g_do_exit.load(std::memory_order_acquire) & (total_time < 2000))
-	{
-		// printStatusList(deviceProbers, iteration++);
-
+	while(!connected)
+	{	
+		// Waiting for connection with device prober
 		for(DeviceProber* deviceProber: deviceProbers) {
 			if(!deviceProber->GetSignalDetected()) {
 				deviceProber->SelectNextConnection();
 			}
-
-			// ImageEncoder* img = new ImageEncoder(deviceProber);
-			// img->RGBImage(iteration);
-			// free(img);
-
-			m_imageEncoders.push_back(new ImageEncoder(deviceProber));
+			connected = true;
 		}
+	}
 
-		// 16.666666666667 ms per frame)
-		a = std::chrono::system_clock::now();
-		work_time = a - b;
-		if (work_time.count() < delta)
-		{
-			std::chrono::duration<double, std::milli> delta_ms(delta - work_time.count());
-			auto delta_ms_duration = std::chrono::duration_cast<std::chrono::milliseconds>(delta_ms);
-			std::this_thread::sleep_for(std::chrono::milliseconds(delta_ms_duration.count()));
-		}
+	// Waiting for playback to finish
+	clock_t start = clock();
+	while ((clock() - start)/CLOCKS_PER_SEC <= 1)
+	{
+		// printf("Time: %f \n", (clock() - start)/CLOCKS_PER_SEC);
+	}
 
-		b = std::chrono::system_clock::now();
-		sleep_time = b - a;
-		total_time = total_time + (work_time + sleep_time).count();
-		printf("Time: %f \n", (work_time + sleep_time).count());
-
+	// Grab image frames from VideoInputFrameArrived callback
+	for(DeviceProber* deviceProber: deviceProbers) {
+		m_deckLinkVideoFrames = deviceProber->GetFrames();
 	}
 
 	iteration = 0;
-	for(ImageEncoder* imageEncoder : m_imageEncoders)
-	{
+	printf("Write Images\n");
+	for(IDeckLinkVideoFrame* m_frame : m_deckLinkVideoFrames)
+	{	
 		printf("Imagem: %d \n", iteration);
-		imageEncoder->RGBImage(iteration);
+		m_frame = convertFrameIfReqired(m_frame, m_frameConverter);
+		decodeRawVideoFrame(m_frame, iteration);
 		iteration++;
 	}
 

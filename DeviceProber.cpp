@@ -133,14 +133,10 @@ BMDPixelFormat DeviceProber::GetPixelFormat()
 	return 0;
 }
 
-IDeckLinkVideoInputFrame* DeviceProber::GetLastFrame()
+std::vector<IDeckLinkVideoInputFrame*> DeviceProber::GetFrames()
 {
-	if (m_captureDelegate)
-	{
-		return m_captureDelegate->GetLastFrame();
-	}
-
-	return NULL;
+	std::vector<IDeckLinkVideoInputFrame*> m_deckLinkVideoFrames (m_captureDelegate->GetFrames());
+	return m_deckLinkVideoFrames;
 }
 
 BMDVideoConnection DeviceProber::GetActiveConnection()

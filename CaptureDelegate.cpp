@@ -228,15 +228,10 @@ HRESULT CaptureDelegate::VideoInputFrameArrived(IDeckLinkVideoInputFrame* videoF
 	else
 	{
 		m_hasSignal = true;
-
-		if(m_lastFrame) {
-			m_lastFrame->Release();
-		}
-
 		m_pixelFormat = videoFrame->GetPixelFormat();
 
-		m_lastFrame = videoFrame;
-		m_lastFrame->AddRef();
+		videoFrame->AddRef();
+		m_deckLinkVideoFrames.push_back(videoFrame);
 
 		// it sometimes happens, that the switch to another connection is ignored when, just at this time,
 		// a signal arrives. Make sure to always report the correct selected interface.

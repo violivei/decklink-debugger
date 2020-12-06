@@ -29,7 +29,7 @@ public:
 
 	virtual void               SelectNextConnection();
 
-	virtual IDeckLinkVideoInputFrame* GetLastFrame();
+	virtual std::vector<IDeckLinkVideoInputFrame*> GetFrames();
 
 private:
 	bool                 queryCanAutodetect();

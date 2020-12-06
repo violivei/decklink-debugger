@@ -5,6 +5,7 @@
 
 #include "RefReleaser.hpp"
 #include "util.h"
+#include <vector>
 
 class CaptureDelegate : public IDeckLinkInputCallback
 {
@@ -27,7 +28,7 @@ public:
 	virtual BMDVideoConnection GetActiveConnection()  { return m_activeConnection; }
 	virtual void               SelectNextConnection();
 
-	virtual IDeckLinkVideoInputFrame* GetLastFrame()  { return m_lastFrame; }
+	virtual std::vector<IDeckLinkVideoInputFrame*> GetFrames()  { return m_deckLinkVideoFrames; }
 
 private:
 	ULONG m_refCount;
@@ -68,6 +69,7 @@ private:
 
 	IDeckLinkVideoInputFrame*             m_lastFrame;
 	RefReleaser<IDeckLinkVideoInputFrame> m_lastFrameReleaser;
+	std::vector<IDeckLinkVideoInputFrame*> m_deckLinkVideoFrames;
 
 	int64_t                   m_decklinkConnections;
 
